@@ -46,6 +46,9 @@ interface CodexFormFieldsProps {
 
   // Speed Test Endpoints
   speedTestEndpoints: EndpointCandidate[];
+
+  // Import Live Config
+  onImportLiveConfig?: () => void;
 }
 
 export function CodexFormFields({
@@ -71,6 +74,7 @@ export function CodexFormFields({
   modelName = "",
   onModelNameChange,
   speedTestEndpoints,
+  onImportLiveConfig,
 }: CodexFormFieldsProps) {
   const { t } = useTranslation();
 
@@ -106,6 +110,23 @@ export function CodexFormFields({
 
   return (
     <>
+      {onImportLiveConfig && category === "official" && (
+        <div className="flex justify-end mb-4">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onImportLiveConfig}
+            className="h-8 gap-2 border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary transition-all duration-200"
+          >
+            <Download className="h-4 w-4" />
+            {t("codexConfig.importFromCurrent", {
+              defaultValue: "从当前账号导入",
+            })}
+          </Button>
+        </div>
+      )}
+
       {/* Codex API Key 输入框 */}
       <ApiKeySection
         id="codexApiKey"

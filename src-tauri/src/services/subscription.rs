@@ -453,6 +453,11 @@ fn read_codex_credentials() -> CodexCredentials {
     read_codex_credentials_from_file()
 }
 
+/// 读取 Codex OAuth 凭据（供其他服务复用）
+pub(crate) fn read_codex_oauth_credentials() -> CodexCredentials {
+    read_codex_credentials()
+}
+
 /// 从 macOS Keychain 读取 Codex 凭据
 #[cfg(target_os = "macos")]
 fn read_codex_credentials_from_keychain() -> Option<CodexCredentials> {
@@ -601,7 +606,7 @@ struct CodexUsageResponse {
 }
 
 /// 根据窗口秒数映射到 tier 名称（与 Claude 的命名兼容以复用前端 i18n）
-fn window_seconds_to_tier_name(secs: i64) -> String {
+pub(crate) fn window_seconds_to_tier_name(secs: i64) -> String {
     match secs {
         18000 => "five_hour".to_string(),
         604800 => "seven_day".to_string(),
@@ -617,12 +622,12 @@ fn window_seconds_to_tier_name(secs: i64) -> String {
 }
 
 /// Unix 时间戳（秒）转 ISO 8601 字符串
-fn unix_ts_to_iso(ts: i64) -> Option<String> {
+pub(crate) fn unix_ts_to_iso(ts: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.to_rfc3339())
 }
 
 /// 查询 Codex 官方订阅额度
-async fn query_codex_quota(access_token: &str, account_id: Option<&str>) -> SubscriptionQuota {
+pub async fn query_codex_quota(access_token: &str, account_id: Option<&str>) -> SubscriptionQuota {
     let client = crate::proxy::http_client::get();
 
     let mut req = client

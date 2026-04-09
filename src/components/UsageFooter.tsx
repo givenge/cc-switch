@@ -38,6 +38,9 @@ const UsageFooter: React.FC<UsageFooterProps> = ({
   const { t } = useTranslation();
   const isTokenPlan =
     provider.meta?.usage_script?.templateType === "token_plan";
+  const isOfficialCodex =
+    provider.meta?.usage_script?.templateType === "official_codex" ||
+    (appId === "codex" && provider.category === "official");
 
   // 统一的用量查询（自动查询仅对当前激活的供应商启用）
   // OpenCode（累加模式）：使用 isInConfig 代替 isCurrent
@@ -71,7 +74,9 @@ const UsageFooter: React.FC<UsageFooterProps> = ({
   }, [lastQueriedAt]);
 
   // 只在启用用量查询且有数据时显示
-  if (!usageEnabled || !usage) return null;
+  // 官方 Codex 账号特殊处理：即使没有手动开启用量脚本（usageEnabled=false），我们也希望能显示其额度
+  const isDisplayEnabled = usageEnabled || isOfficialCodex;
+  if (!isDisplayEnabled || !usage) return null;
 
   // 错误状态
   if (!usage.success) {
@@ -121,8 +126,8 @@ const UsageFooter: React.FC<UsageFooterProps> = ({
   // 无数据时不显示
   if (usageDataList.length === 0) return null;
 
-  // ── Token Plan：订阅风格内联渲染（百分比徽章 + 倒计时） ──
-  if (isTokenPlan && inline) {
+  // ── Token Plan / Official Codex：订阅风格内联渲染（百分比徽章 + 倒计时） ──
+  if ((isTokenPlan || isOfficialCodex) && inline) {
     return (
       <div className="flex flex-col items-end gap-1 text-xs whitespace-nowrap flex-shrink-0">
         {/* 第一行：查询时间 + 刷新 */}

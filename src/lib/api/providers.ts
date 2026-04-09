@@ -25,6 +25,11 @@ export interface OpenTerminalOptions {
   cwd?: string;
 }
 
+export interface CodexLiveConfig {
+  auth: any;
+  config: string;
+}
+
 export const providersApi = {
   async getAll(appId: AppId): Promise<Record<string, Provider>> {
     return await invoke("get_providers", { app: appId });
@@ -142,6 +147,13 @@ export const providersApi = {
    */
   async importOpenClawFromLive(): Promise<number> {
     return await invoke("import_openclaw_providers_from_live");
+  },
+
+  /**
+   * 获取 Codex 当前 Live 配置（auth.json 和 config.toml）
+   */
+  async getCodexLiveConfig(): Promise<CodexLiveConfig> {
+    return await invoke("get_codex_live_config");
   },
 };
 

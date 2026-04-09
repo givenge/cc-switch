@@ -120,6 +120,17 @@ pub fn read_codex_config_text() -> Result<String, AppError> {
     }
 }
 
+/// 读取 `~/.codex/auth.json`，若不存在返回空对象
+pub fn read_codex_auth_json() -> Result<Value, AppError> {
+    let path = get_codex_auth_path();
+    if path.exists() {
+        let content = std::fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?;
+        serde_json::from_str(&content).map_err(|e| AppError::json(&path, e))
+    } else {
+        Ok(serde_json::json!({}))
+    }
+}
+
 /// 对非空的 TOML 文本进行语法校验
 pub fn validate_config_toml(text: &str) -> Result<(), AppError> {
     if text.trim().is_empty() {

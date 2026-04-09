@@ -8,6 +8,7 @@ export const TEMPLATE_TYPES = {
   CUSTOM: "custom",
   GENERAL: "general",
   NEW_API: "newapi",
+  OFFICIAL_CODEX: "official_codex",
   GITHUB_COPILOT: "github_copilot",
   TOKEN_PLAN: "token_plan",
 } as const;

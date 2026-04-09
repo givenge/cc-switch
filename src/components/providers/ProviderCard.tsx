@@ -348,17 +348,8 @@ export function ProviderCard({
         <div className="flex items-center ml-auto min-w-0 gap-3">
           <div className="ml-auto">
             <div className="flex items-center gap-1">
-              {isOfficial ? (
+              {(isOfficial && appId !== "codex") ? (
                 <SubscriptionQuotaFooter appId={appId} inline={true} />
-              ) : hasMultiplePlans ? (
-                <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                  <span className="font-medium">
-                    {t("usage.multiplePlans", {
-                      count: usage?.data?.length || 0,
-                      defaultValue: `${usage?.data?.length || 0} 个套餐`,
-                    })}
-                  </span>
-                </div>
               ) : (
                 <UsageFooter
                   provider={provider}
@@ -408,7 +399,7 @@ export function ProviderCard({
                 onTest && !isOfficial ? () => onTest(provider) : undefined
               }
               onConfigureUsage={
-                isOfficial ? undefined : () => onConfigureUsage(provider)
+                isOfficial && appId !== "codex" ? undefined : () => onConfigureUsage(provider)
               }
               onDelete={() => onDelete(provider)}
               onRemoveFromConfig={

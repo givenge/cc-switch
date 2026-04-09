@@ -906,7 +906,13 @@
     "modelNamePlaceholder": "例如: gpt-5-codex",
     "contextWindow1M": "1M 上下文窗口",
     "autoCompactLimit": "压缩阈值",
-    "autoCompactLimitHint": "上下文 token 数达到此阈值时自动压缩历史"
+    "autoCompactLimitHint": "上下文 token 数达到此阈值时自动压缩历史",
+    "importFromCurrent": "从当前账号导入",
+    "importSuccess": "成功从当前账号导入配置",
+    "importEmpty": "当前没有活跃的 Codex 登录状态",
+    "importError": "导入失败: {{error}}",
+    "importOverwriteWarning": "您正在编辑现有的供应商配置。导入将覆盖当前的 API Key、Endpoint 和认证令牌。是否继续？",
+    "configLabel": "Codex 配置 (TOML) *"
   },
   "geminiConfig": {
     "envFile": "环境变量 (.env)",
@@ -1091,8 +1097,10 @@
     "templateNewAPI": "NewAPI",
     "templateCopilot": "GitHub Copilot",
     "templateTokenPlan": "Token Plan",
+    "templateOfficialCodex": "Official OpenAI (内置查询)",
     "copilotAutoAuth": "自动使用 OAuth 认证，无需手动配置凭证",
     "tokenPlanHint": "自动使用供应商的 API Key 和 Base URL 查询 Token Plan 额度",
+    "officialCodexHint": "注意：此选项将查询连接到您本地 Codex CLI 活跃登录的 OpenAI 账号额度（OAuth 模式）。",
     "resetDate": "重置日期",
     "premiumRequests": "Premium 请求",
     "credentialsConfig": "凭证配置",

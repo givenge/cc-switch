@@ -9,6 +9,16 @@ use crate::settings;
 use crate::store::AppState;
 use crate::usage_script;
 
+use crate::services::subscription;
+
+fn json_nonempty_string(value: Option<&serde_json::Value>) -> Option<String> {
+    value
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
 /// Execute usage script and format result (private helper method)
 pub(crate) async fn execute_and_format_usage_result(
     script_code: &str,
@@ -19,6 +29,77 @@ pub(crate) async fn execute_and_format_usage_result(
     user_id: Option<&str>,
     template_type: Option<&str>,
 ) -> Result<UsageResult, AppError> {
+    // 处理内置模板（无需运行 JS 运行时）
+    if let Some("official_codex") = template_type {
+        // 多账号隔离：优先使用当前 provider 的凭据（access_token/api_key）。
+        // 仅当 provider 未配置 token 时，才回退到本机 live OAuth。
+        let provider_token = access_token
+            .filter(|t| !t.is_empty())
+            .map(|t| t.to_string())
+            .or_else(|| {
+                if api_key.is_empty() {
+                    None
+                } else {
+                    Some(api_key.to_string())
+                }
+            });
+
+        let provider_account_id = user_id
+            .filter(|u| !u.is_empty())
+            .map(|u| u.to_string());
+
+        let (live_token, live_account_id, _status, message) =
+            subscription::read_codex_oauth_credentials();
+
+        let token = provider_token.or_else(|| live_token.filter(|t| !t.is_empty()));
+
+        let Some(token) = token else {
+            return Ok(UsageResult {
+                success: false,
+                data: None,
+                error: Some(
+                    message.unwrap_or_else(|| {
+                        "No valid Codex OAuth token found. Please login with Codex CLI."
+                            .to_string()
+                    }),
+                ),
+            });
+        };
+
+        let account_id = provider_account_id.or(live_account_id);
+
+        let quota = subscription::query_codex_quota(&token, account_id.as_deref()).await;
+
+        if quota.success {
+            let data_list = quota
+                .tiers
+                .into_iter()
+                .map(|tier| UsageData {
+                    plan_name: Some(tier.name),
+                    used: Some(tier.utilization),
+                    remaining: Some(100.0 - tier.utilization),
+                    total: Some(100.0),
+                    unit: Some("%".to_string()),
+                    extra: tier.resets_at,
+                    is_valid: Some(true),
+                    invalid_message: None,
+                })
+                .collect();
+
+            return Ok(UsageResult {
+                success: true,
+                data: Some(data_list),
+                error: None,
+            });
+        } else {
+            return Ok(UsageResult {
+                success: false,
+                data: None,
+                error: quota.error,
+            });
+        }
+    }
+
     match usage_script::execute_usage_script(
         script_code,
         api_key,
@@ -85,12 +166,28 @@ pub(crate) async fn execute_and_format_usage_result(
 fn extract_api_key_from_provider(provider: &crate::provider::Provider) -> Option<String> {
     if let Some(env) = provider.settings_config.get("env") {
         // Try multiple possible API key fields
-        env.get("ANTHROPIC_AUTH_TOKEN")
-            .or_else(|| env.get("ANTHROPIC_API_KEY"))
-            .or_else(|| env.get("OPENROUTER_API_KEY"))
-            .or_else(|| env.get("GOOGLE_API_KEY"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+        json_nonempty_string(env.get("ANTHROPIC_AUTH_TOKEN"))
+            .or_else(|| json_nonempty_string(env.get("ANTHROPIC_API_KEY")))
+            .or_else(|| json_nonempty_string(env.get("OPENROUTER_API_KEY")))
+            .or_else(|| json_nonempty_string(env.get("GOOGLE_API_KEY")))
+    } else if let Some(auth) = provider.settings_config.get("auth") {
+        // Codex handles auth separately
+        // Try standard session token field names
+        json_nonempty_string(auth.get("OPENAI_API_KEY")).or_else(|| {
+            json_nonempty_string(auth.get("tokens").and_then(|t| t.get("access_token")))
+        })
+    } else {
+        None
+    }
+}
+
+/// Extract account ID (user ID) from provider configuration
+fn extract_account_id_from_provider(provider: &crate::provider::Provider) -> Option<String> {
+    if let Some(auth) = provider.settings_config.get("auth") {
+        // Look for account_id in tokens or top level of auth
+        json_nonempty_string(auth.get("account_id")).or_else(|| {
+            json_nonempty_string(auth.get("tokens").and_then(|t| t.get("account_id")))
+        })
     } else {
         None
     }
@@ -100,9 +197,8 @@ fn extract_api_key_from_provider(provider: &crate::provider::Provider) -> Option
 fn extract_base_url_from_provider(provider: &crate::provider::Provider) -> Option<String> {
     if let Some(env) = provider.settings_config.get("env") {
         // Try multiple possible base URL fields
-        env.get("ANTHROPIC_BASE_URL")
-            .or_else(|| env.get("GOOGLE_GEMINI_BASE_URL"))
-            .and_then(|v| v.as_str())
+        json_nonempty_string(env.get("ANTHROPIC_BASE_URL"))
+            .or_else(|| json_nonempty_string(env.get("GOOGLE_GEMINI_BASE_URL")))
             .map(|s| s.trim_end_matches('/').to_string())
     } else {
         None
@@ -159,13 +255,19 @@ pub async fn query_usage(
             .or_else(|| extract_base_url_from_provider(provider))
             .unwrap_or_default();
 
+        let user_id = usage_script
+            .user_id
+            .clone()
+            .filter(|u| !u.is_empty())
+            .or_else(|| extract_account_id_from_provider(provider));
+
         (
             usage_script.code.clone(),
             usage_script.timeout.unwrap_or(10),
             api_key,
             base_url,
             usage_script.access_token.clone(),
-            usage_script.user_id.clone(),
+            user_id,
             usage_script.template_type.clone(),
         )
     };
@@ -225,4 +327,38 @@ pub(crate) fn validate_usage_script(script: &UsageScript) -> Result<(), AppError
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_account_id_from_provider, extract_api_key_from_provider};
+    use crate::provider::Provider;
+    use serde_json::json;
+
+    #[test]
+    fn codex_usage_falls_back_to_tokens_when_openai_api_key_is_null() {
+        let provider = Provider::with_id(
+            "p1".to_string(),
+            "codex".to_string(),
+            json!({
+                "auth": {
+                    "OPENAI_API_KEY": null,
+                    "tokens": {
+                        "access_token": "access-token-123",
+                        "account_id": "account-123"
+                    }
+                }
+            }),
+            None,
+        );
+
+        assert_eq!(
+            extract_api_key_from_provider(&provider),
+            Some("access-token-123".to_string())
+        );
+        assert_eq!(
+            extract_account_id_from_provider(&provider),
+            Some("account-123".to_string())
+        );
+    }
 }

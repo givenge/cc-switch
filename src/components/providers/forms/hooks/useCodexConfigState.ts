@@ -30,7 +30,16 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
 
   // 初始化 Codex 配置（编辑模式）
   useEffect(() => {
-    if (!initialData) return;
+    if (!initialData) {
+      // Reset all states for 'Add' mode
+      setCodexAuthState("");
+      setCodexConfigState("");
+      setCodexApiKey("");
+      setCodexBaseUrl("");
+      setCodexModelName("");
+      setCodexAuthError("");
+      return;
+    }
 
     const config = initialData.settingsConfig;
     if (typeof config === "object" && config !== null) {

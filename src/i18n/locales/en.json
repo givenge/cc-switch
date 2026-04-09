@@ -905,8 +905,14 @@
     "modelName": "Model Name",
     "modelNamePlaceholder": "e.g., gpt-5-codex",
     "contextWindow1M": "1M Context Window",
-    "autoCompactLimit": "Auto Compact Limit",
-    "autoCompactLimitHint": "Auto-compacts history when context reaches this token limit"
+    "autoCompactLimit": "Auto-compact limit",
+    "autoCompactLimitHint": "Auto-compact history when context tokens reach this limit",
+    "importFromCurrent": "Import from Current Account",
+    "importSuccess": "Successfully imported config from current account",
+    "importEmpty": "No active Codex login session found",
+    "importError": "Import failed: {{error}}",
+    "importOverwriteWarning": "You are editing an existing provider. Importing will overwrite the current API Key, Endpoint, and Auth Token. Do you want to continue?",
+    "configLabel": "Codex Config (TOML) *"
   },
   "geminiConfig": {
     "envFile": "Environment Variables (.env)",
@@ -1091,8 +1097,10 @@
     "templateNewAPI": "NewAPI",
     "templateCopilot": "GitHub Copilot",
     "templateTokenPlan": "Token Plan",
+    "templateOfficialCodex": "Official OpenAI (Intrinsic Query)",
     "copilotAutoAuth": "Auto OAuth authentication, no manual credentials needed",
     "tokenPlanHint": "Automatically uses the provider's API Key and Base URL to query Token Plan quota",
+    "officialCodexHint": "Note: This option queries the quota of the OpenAI account currently logged into your local Codex CLI (OAuth mode).",
     "resetDate": "Reset date",
     "premiumRequests": "Premium Requests",
     "credentialsConfig": "Credentials",
