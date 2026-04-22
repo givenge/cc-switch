@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 
 mod auth;
-mod codex;
 mod balance;
 mod codex_oauth;
 mod coding_plan;
@@ -11,6 +10,7 @@ mod deeplink;
 mod env;
 mod failover;
 mod global_proxy;
+mod hermes;
 mod import_export;
 mod mcp;
 mod misc;
@@ -34,7 +34,6 @@ mod webdav_sync;
 mod workspace;
 
 pub use auth::*;
-pub use codex::*;
 pub use balance::*;
 pub use codex_oauth::*;
 pub use coding_plan::*;
@@ -44,6 +43,7 @@ pub use deeplink::*;
 pub use env::*;
 pub use failover::*;
 pub use global_proxy::*;
+pub use hermes::*;
 pub use import_export::*;
 pub use mcp::*;
 pub use misc::*;

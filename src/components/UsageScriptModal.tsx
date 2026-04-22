@@ -73,6 +73,7 @@ const generatePresetTemplates = (
     headers: {
       "Content-Type": "application/json",
       "Authorization": "Bearer {{accessToken}}",
+      "User-Agent": "cc-switch/1.0",
       "New-Api-User": "{{userId}}"
     },
   },
@@ -99,9 +100,6 @@ const generatePresetTemplates = (
   // Coding Plan 模板不需要脚本，使用专用 Rust 查询
   [TEMPLATE_TYPES.TOKEN_PLAN]: "",
 
-  // Official OpenAI (Codex) 模板不需要脚本，使用专用 Rust 查询
-  [TEMPLATE_TYPES.OFFICIAL_CODEX]: "",
-
   // 官方余额查询模板不需要脚本，使用专用 Rust 查询
   [TEMPLATE_TYPES.BALANCE]: "",
 });
@@ -113,7 +111,6 @@ const TEMPLATE_NAME_KEYS: Record<string, string> = {
   [TEMPLATE_TYPES.NEW_API]: "usageScript.templateNewAPI",
   [TEMPLATE_TYPES.GITHUB_COPILOT]: "usageScript.templateCopilot",
   [TEMPLATE_TYPES.TOKEN_PLAN]: "usageScript.templateTokenPlan",
-  [TEMPLATE_TYPES.OFFICIAL_CODEX]: "usageScript.templateOfficialCodex",
   [TEMPLATE_TYPES.BALANCE]: "usageScript.templateBalance",
 };
 
@@ -176,49 +173,56 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
   const PRESET_TEMPLATES = generatePresetTemplates(t);
 
   // 从 provider 的 settingsConfig 中提取 API Key 和 Base URL
-    const getProviderCredentials = (): {
-      apiKey: string | undefined;
-      baseUrl: string | undefined;
-      userId: string | undefined;
-    } => {
-      try {
-        const config = provider.settingsConfig;
-        if (!config)
-          return { apiKey: undefined, baseUrl: undefined, userId: undefined };
+  const getProviderCredentials = (): {
+    apiKey: string | undefined;
+    baseUrl: string | undefined;
+  } => {
+    try {
+      const config = provider.settingsConfig;
+      if (!config) return { apiKey: undefined, baseUrl: undefined };
 
-        // 处理不同应用的配置格式
-        if (appId === "claude") {
-          // Claude: { env: { ANTHROPIC_AUTH_TOKEN | ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL } }
-          const env = (config as any).env || {};
-          return {
-            apiKey: env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY,
-            baseUrl: env.ANTHROPIC_BASE_URL,
-            userId: undefined,
-          };
-        } else if (appId === "codex") {
-          // Codex: { auth: { OPENAI_API_KEY, tokens: { access_token, account_id } }, config: TOML string with base_url }
-          const auth = (config as any).auth || {};
-          const configToml = (config as any).config || "";
-          return {
-            apiKey: auth.OPENAI_API_KEY || auth.tokens?.access_token,
-            baseUrl: extractCodexBaseUrl(configToml),
-            userId: auth.account_id || auth.tokens?.account_id,
-          };
-        } else if (appId === "gemini") {
-          // Gemini: { env: { GEMINI_API_KEY, GOOGLE_GEMINI_BASE_URL } }
-          const env = (config as any).env || {};
-          return {
-            apiKey: env.GEMINI_API_KEY,
-            baseUrl: env.GOOGLE_GEMINI_BASE_URL,
-            userId: undefined,
-          };
-        }
-        return { apiKey: undefined, baseUrl: undefined, userId: undefined };
-      } catch (error) {
-        console.error("Failed to extract provider credentials:", error);
-        return { apiKey: undefined, baseUrl: undefined, userId: undefined };
+      // 处理不同应用的配置格式
+      if (appId === "claude") {
+        // Claude: { env: { ANTHROPIC_AUTH_TOKEN | ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL } }
+        const env = (config as any).env || {};
+        return {
+          apiKey: env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY,
+          baseUrl: env.ANTHROPIC_BASE_URL,
+        };
+      } else if (appId === "codex") {
+        // Codex: { auth: { OPENAI_API_KEY }, config: TOML string with base_url }
+        const auth = (config as any).auth || {};
+        const configToml = (config as any).config || "";
+        return {
+          apiKey: auth.OPENAI_API_KEY,
+          baseUrl: extractCodexBaseUrl(configToml),
+        };
+      } else if (appId === "gemini") {
+        // Gemini: { env: { GEMINI_API_KEY, GOOGLE_GEMINI_BASE_URL } }
+        const env = (config as any).env || {};
+        return {
+          apiKey: env.GEMINI_API_KEY,
+          baseUrl: env.GOOGLE_GEMINI_BASE_URL,
+        };
+      } else if (appId === "hermes") {
+        // Hermes: settingsConfig 顶层扁平（snake_case，对应 config.yaml）
+        return {
+          apiKey: (config as any).api_key,
+          baseUrl: (config as any).base_url,
+        };
+      } else if (appId === "openclaw") {
+        // OpenClaw: settingsConfig 顶层扁平（camelCase，对应 openclaw.json）
+        return {
+          apiKey: (config as any).apiKey,
+          baseUrl: (config as any).baseUrl,
+        };
       }
-    };
+      return { apiKey: undefined, baseUrl: undefined };
+    } catch (error) {
+      console.error("Failed to extract provider credentials:", error);
+      return { apiKey: undefined, baseUrl: undefined };
+    }
+  };
 
   const providerCredentials = getProviderCredentials();
 
@@ -384,7 +388,6 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
     if (
       selectedTemplate !== TEMPLATE_TYPES.GITHUB_COPILOT &&
       selectedTemplate !== TEMPLATE_TYPES.TOKEN_PLAN &&
-      selectedTemplate !== TEMPLATE_TYPES.OFFICIAL_CODEX &&
       selectedTemplate !== TEMPLATE_TYPES.BALANCE
     ) {
       if (script.enabled && !script.code.trim()) {
@@ -396,33 +399,18 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
         return;
       }
     }
-
     // 保存时记录当前选择的模板类型
-    let scriptWithTemplate = {
+    const scriptWithTemplate = {
       ...script,
-      templateType: selectedTemplate as UsageScript["templateType"],
-      code:
-        selectedTemplate === TEMPLATE_TYPES.CUSTOM
-          ? script.code
-          : selectedTemplate === TEMPLATE_TYPES.OFFICIAL_CODEX ||
-              selectedTemplate === TEMPLATE_TYPES.GITHUB_COPILOT ||
-              selectedTemplate === TEMPLATE_TYPES.BALANCE
-            ? ""
-            : script.code,
+      templateType: selectedTemplate as
+        | "custom"
+        | "general"
+        | "newapi"
+        | "github_copilot"
+        | "token_plan"
+        | "balance"
+        | undefined,
     };
-
-    // Official Codex：保存当前 provider 的账号快照，保证多账号查询隔离
-    if (selectedTemplate === TEMPLATE_TYPES.OFFICIAL_CODEX) {
-      const credentials = getProviderCredentials();
-      scriptWithTemplate = {
-        ...scriptWithTemplate,
-        accessToken:
-          credentials.apiKey || script.accessToken || script.apiKey || undefined,
-        userId: credentials.userId || script.userId || undefined,
-        apiKey: undefined,
-      };
-    }
-
     onSave(scriptWithTemplate);
     onClose();
   };
@@ -432,12 +420,8 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
     try {
       // 官方余额查询模板使用专用 API
       if (selectedTemplate === TEMPLATE_TYPES.BALANCE) {
-        const config = provider.settingsConfig as Record<string, any>;
-        const baseUrl: string = config?.env?.ANTHROPIC_BASE_URL ?? "";
-        const apiKey: string =
-          config?.env?.ANTHROPIC_AUTH_TOKEN ??
-          config?.env?.ANTHROPIC_API_KEY ??
-          "";
+        const baseUrl = providerCredentials.baseUrl ?? "";
+        const apiKey = providerCredentials.apiKey ?? "";
         const { subscriptionApi } = await import("@/lib/api/subscription");
         const result = await subscriptionApi.getBalance(baseUrl, apiKey);
         if (result.success && result.data && result.data.length > 0) {
@@ -463,12 +447,8 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
 
       // Coding Plan 模板使用专用 API
       if (selectedTemplate === TEMPLATE_TYPES.TOKEN_PLAN) {
-        const config = provider.settingsConfig as Record<string, any>;
-        const baseUrl: string = config?.env?.ANTHROPIC_BASE_URL ?? "";
-        const apiKey: string =
-          config?.env?.ANTHROPIC_AUTH_TOKEN ??
-          config?.env?.ANTHROPIC_API_KEY ??
-          "";
+        const baseUrl = providerCredentials.baseUrl ?? "";
+        const apiKey = providerCredentials.apiKey ?? "";
         const { subscriptionApi } = await import("@/lib/api/subscription");
         const quota = await subscriptionApi.getCodingPlanQuota(baseUrl, apiKey);
         if (quota.success && quota.tiers.length > 0) {
@@ -529,44 +509,6 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
             },
           ],
         });
-        return;
-      }
-
-      // Official OpenAI (Codex) 模式使用 Rust 查询
-      if (selectedTemplate === TEMPLATE_TYPES.OFFICIAL_CODEX) {
-        const result = await usageApi.testScript(
-          provider.id,
-          appId,
-          "", // code
-          script.timeout,
-          "", // apiKey (official codex path uses OAuth token)
-          providerCredentials.baseUrl || script.baseUrl || "", // baseUrl (unused by official codex path)
-          providerCredentials.apiKey ||
-            script.accessToken ||
-            script.apiKey ||
-            "", // accessToken
-          providerCredentials.userId || script.userId, // userId
-          TEMPLATE_TYPES.OFFICIAL_CODEX,
-        );
-
-        if (result.success && result.data && result.data.length > 0) {
-          const summary = result.data
-            .map((plan: UsageData) => {
-              const planInfo = plan.planName ? `[${plan.planName}]` : "";
-              return `${planInfo} ${t("usage.remaining")} ${Math.round(plan.remaining ?? 0)}%`;
-            })
-            .join(", ");
-          toast.success(`${t("usageScript.testSuccess")}${summary}`, {
-            duration: 3000,
-            closeButton: true,
-          });
-          queryClient.setQueryData(["usage", provider.id, appId], result);
-        } else {
-          toast.error(
-            `${t("usageScript.testFailed")}: ${result.error || t("endpointTest.noResult")}`,
-            { duration: 5000 },
-          );
-        }
         return;
       }
 
@@ -679,8 +621,11 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
           accessToken: undefined,
           userId: undefined,
         });
-      } else if (presetName === TEMPLATE_TYPES.OFFICIAL_CODEX) {
-        // Official Codex 模板不需要脚本和凭证，使用专用 Rust 查询
+      } else if (presetName === TEMPLATE_TYPES.TOKEN_PLAN) {
+        // Coding Plan 模板不需要脚本，使用 Rust 原生查询
+        const autoDetected = detectTokenPlanProvider(
+          providerCredentials.baseUrl,
+        );
         setScript({
           ...script,
           code: "",
@@ -688,6 +633,8 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
           baseUrl: undefined,
           accessToken: undefined,
           userId: undefined,
+          codingPlanProvider:
+            script.codingPlanProvider || autoDetected || "kimi",
         });
       } else if (presetName === TEMPLATE_TYPES.BALANCE) {
         // 官方余额查询模板不需要脚本，使用 Rust 原生查询
@@ -781,21 +728,12 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                 .filter((name) => {
                   const isCopilotProvider =
                     provider.meta?.providerType === "github_copilot";
-                  const isCodexApp = appId === "codex";
-                  
                   // Copilot 供应商只显示 copilot 模板
                   if (isCopilotProvider) {
                     return name === TEMPLATE_TYPES.GITHUB_COPILOT;
                   }
-                  
-                  // Codex 应用且是官方模式
-                  if (isCodexApp && (provider.meta?.isOfficial || provider.category === "official")) {
-                    // 只显示官方和自定义
-                    return name === TEMPLATE_TYPES.OFFICIAL_CODEX || name === TEMPLATE_TYPES.CUSTOM;
-                  }
-
-                  // 排除专用模板
-                  return name !== TEMPLATE_TYPES.GITHUB_COPILOT && name !== TEMPLATE_TYPES.OFFICIAL_CODEX;
+                  // 非 Copilot 供应商不显示 copilot 模板
+                  return name !== TEMPLATE_TYPES.GITHUB_COPILOT;
                 })
                 .map((name) => {
                   const isSelected = selectedTemplate === name;
@@ -892,15 +830,6 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
               <div className="space-y-2 border-t border-white/10 pt-3">
                 <p className="text-sm text-muted-foreground">
                   {t("usageScript.copilotAutoAuth")}
-                </p>
-              </div>
-            )}
-
-            {/* Official Codex 模式：自动认证提示 */}
-            {selectedTemplate === TEMPLATE_TYPES.OFFICIAL_CODEX && (
-              <div className="space-y-2 border-t border-white/10 pt-3">
-                <p className="text-sm text-muted-foreground">
-                  {t("usageScript.officialCodexHint")}
                 </p>
               </div>
             )}

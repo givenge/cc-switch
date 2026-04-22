@@ -14,6 +14,7 @@ import {
   Minimize2,
   X,
   Book,
+  Brain,
   Wrench,
   RefreshCw,
   History,
@@ -25,6 +26,7 @@ import {
   KeyRound,
   Shield,
   Cpu,
+  LayoutDashboard,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Provider, VisibleApps } from "@/types";
@@ -39,6 +41,12 @@ import {
 import { checkAllEnvConflicts, checkEnvConflicts } from "@/lib/api/env";
 import { useProviderActions } from "@/hooks/useProviderActions";
 import { openclawKeys, useOpenClawHealth } from "@/hooks/useOpenClaw";
+import {
+  hermesKeys,
+  useHermesHealth,
+  useOpenHermesWebUI,
+} from "@/hooks/useHermes";
+import { hermesApi } from "@/lib/api/hermes";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { useAutoCompact } from "@/hooks/useAutoCompact";
 import { useLastValidValue } from "@/hooks/useLastValidValue";
@@ -82,6 +90,8 @@ import EnvPanel from "@/components/openclaw/EnvPanel";
 import ToolsPanel from "@/components/openclaw/ToolsPanel";
 import AgentsDefaultsPanel from "@/components/openclaw/AgentsDefaultsPanel";
 import OpenClawHealthBanner from "@/components/openclaw/OpenClawHealthBanner";
+import HermesHealthBanner from "@/components/hermes/HermesHealthBanner";
+import HermesMemoryPanel from "@/components/hermes/HermesMemoryPanel";
 
 type View =
   | "providers"
@@ -96,7 +106,8 @@ type View =
   | "workspace"
   | "openclawEnv"
   | "openclawTools"
-  | "openclawAgents";
+  | "openclawAgents"
+  | "hermesMemory";
 
 interface WebDavSyncStatusUpdatedPayload {
   source?: string;
@@ -114,6 +125,7 @@ const VALID_APPS: AppId[] = [
   "gemini",
   "opencode",
   "openclaw",
+  "hermes",
 ];
 
 const getInitialApp = (): AppId => {
@@ -139,6 +151,7 @@ const VALID_VIEWS: View[] = [
   "openclawEnv",
   "openclawTools",
   "openclawAgents",
+  "hermesMemory",
 ];
 
 const getInitialView = (): View => {
@@ -174,6 +187,7 @@ function App() {
     gemini: true,
     opencode: true,
     openclaw: true,
+    hermes: true,
   };
 
   const getFirstVisibleApp = (): AppId => {
@@ -182,6 +196,7 @@ function App() {
     if (visibleApps.gemini) return "gemini";
     if (visibleApps.opencode) return "opencode";
     if (visibleApps.openclaw) return "openclaw";
+    if (visibleApps.hermes) return "hermes";
     return "claude"; // fallback
   };
 
@@ -199,7 +214,8 @@ function App() {
       activeApp !== "codex" &&
       activeApp !== "opencode" &&
       activeApp !== "openclaw" &&
-      activeApp !== "gemini"
+      activeApp !== "gemini" &&
+      activeApp !== "hermes"
     ) {
       setCurrentView("providers");
     }
@@ -255,13 +271,16 @@ function App() {
       currentView === "openclawAgents");
   const { data: openclawHealthWarnings = [] } =
     useOpenClawHealth(isOpenClawView);
+  const isHermesView = activeApp === "hermes" && currentView === "providers";
+  const { data: hermesHealthWarnings = [] } = useHermesHealth(isHermesView);
   const hasSkillsSupport = true;
   const hasSessionSupport =
     activeApp === "claude" ||
     activeApp === "codex" ||
     activeApp === "opencode" ||
     activeApp === "openclaw" ||
-    activeApp === "gemini";
+    activeApp === "gemini" ||
+    activeApp === "hermes";
 
   const {
     addProvider,
@@ -270,7 +289,11 @@ function App() {
     deleteProvider,
     saveUsageScript,
     setAsDefaultModel,
-  } = useProviderActions(activeApp, isProxyRunning);
+  } = useProviderActions(
+    activeApp,
+    isProxyRunning,
+    isProxyRunning && isCurrentAppTakeoverActive,
+  );
 
   const disableOmoMutation = useDisableCurrentOmo();
   const handleDisableOmo = () => {
@@ -400,6 +423,77 @@ function App() {
       unsubscribe?.();
     };
   }, [queryClient, t]);
+
+  // Listen for proxy-official-warning: warn when takeover is enabled with an official provider
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+
+    const setup = async () => {
+      unsubscribe = await listen("proxy-official-warning", (event) => {
+        const { providerName } = event.payload as {
+          appType: string;
+          providerName: string;
+        };
+        toast.warning(
+          t("notifications.proxyOfficialWarning", {
+            name: providerName,
+            defaultValue: `当前供应商 ${providerName} 是官方供应商，建议切换到第三方供应商后再使用代理接管`,
+          }),
+          { duration: 8000 },
+        );
+      });
+    };
+
+    void setup();
+    return () => {
+      unsubscribe?.();
+    };
+  }, [t]);
+
+  useEffect(() => {
+    let active = true;
+    let unlistenResize: (() => void) | undefined;
+
+    const setupWindowStateSync = async () => {
+      try {
+        const currentWindow = getCurrentWindow();
+        const syncWindowMaximizedState = async () => {
+          const maximized = await currentWindow.isMaximized();
+          if (active) {
+            setIsWindowMaximized(maximized);
+          }
+        };
+
+        await syncWindowMaximizedState();
+        unlistenResize = await currentWindow.onResized(() => {
+          void syncWindowMaximizedState();
+        });
+      } catch (error) {
+        console.error("[App] Failed to sync window maximized state", error);
+      }
+    };
+
+    void setupWindowStateSync();
+    return () => {
+      active = false;
+      unlistenResize?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    // settingsData 未加载时跳过，避免用 fallback false 覆盖 Rust 侧已设好的装饰状态
+    if (!settingsData) return;
+
+    const syncWindowDecorations = async () => {
+      try {
+        await getCurrentWindow().setDecorations(!useAppWindowControls);
+      } catch (error) {
+        console.error("[App] Failed to update window decorations", error);
+      }
+    };
+
+    void syncWindowDecorations();
+  }, [useAppWindowControls, settingsData]);
 
   useEffect(() => {
     let active = true;
@@ -580,6 +674,11 @@ function App() {
     };
   }, []);
 
+  const [launchDashboardOpen, setLaunchDashboardOpen] = useState(false);
+  const openHermesWebUI = useOpenHermesWebUI(() =>
+    setLaunchDashboardOpen(true),
+  );
+
   const handleOpenWebsite = async (url: string) => {
     try {
       await settingsApi.openExternal(url);
@@ -623,6 +722,13 @@ function App() {
         });
         await queryClient.invalidateQueries({
           queryKey: openclawKeys.health,
+        });
+      } else if (activeApp === "hermes") {
+        await queryClient.invalidateQueries({
+          queryKey: hermesKeys.liveProviderIds,
+        });
+        await queryClient.invalidateQueries({
+          queryKey: hermesKeys.health,
         });
       }
       toast.success(
@@ -674,7 +780,11 @@ function App() {
       iconColor: provider.iconColor,
     };
 
-    if (activeApp === "opencode" || activeApp === "openclaw") {
+    if (
+      activeApp === "opencode" ||
+      activeApp === "openclaw" ||
+      activeApp === "hermes"
+    ) {
       let liveProviderIds: string[] = [];
       try {
         liveProviderIds =
@@ -683,10 +793,15 @@ function App() {
                 queryKey: ["opencodeLiveProviderIds"],
                 queryFn: () => providersApi.getOpenCodeLiveProviderIds(),
               })
-            : await queryClient.ensureQueryData({
-                queryKey: openclawKeys.liveProviderIds,
-                queryFn: () => providersApi.getOpenClawLiveProviderIds(),
-              });
+            : activeApp === "openclaw"
+              ? await queryClient.ensureQueryData({
+                  queryKey: openclawKeys.liveProviderIds,
+                  queryFn: () => providersApi.getOpenClawLiveProviderIds(),
+                })
+              : await queryClient.ensureQueryData({
+                  queryKey: hermesKeys.liveProviderIds,
+                  queryFn: () => providersApi.getHermesLiveProviderIds(),
+                });
       } catch (error) {
         console.error(
           "[App] Failed to load live provider IDs for duplication",
@@ -847,6 +962,8 @@ function App() {
               appId={activeApp}
             />
           );
+        case "hermesMemory":
+          return <HermesMemoryPanel />;
         case "skills":
           return (
             <UnifiedSkillsPanel
@@ -921,7 +1038,9 @@ function App() {
                         setConfirmAction({ provider, action: "delete" })
                       }
                       onRemoveFromConfig={
-                        activeApp === "opencode" || activeApp === "openclaw"
+                        activeApp === "opencode" ||
+                        activeApp === "openclaw" ||
+                        activeApp === "hermes"
                           ? (provider) =>
                               setConfirmAction({ provider, action: "remove" })
                           : undefined
@@ -942,7 +1061,11 @@ function App() {
                       }
                       onCreate={() => setIsAddOpen(true)}
                       onSetAsDefault={
-                        activeApp === "openclaw" ? setAsDefaultModel : undefined
+                        activeApp === "openclaw"
+                          ? setAsDefaultModel
+                          : activeApp === "hermes"
+                            ? switchProvider
+                            : undefined
                       }
                     />
                   </motion.div>
@@ -1103,6 +1226,7 @@ function App() {
                   {currentView === "openclawTools" && t("openclaw.tools.title")}
                   {currentView === "openclawAgents" &&
                     t("openclaw.agents.title")}
+                  {currentView === "hermesMemory" && t("hermes.memory.title")}
                 </h1>
               </div>
             ) : (
@@ -1163,7 +1287,8 @@ function App() {
           <div className="flex flex-1 min-w-0 items-center justify-end gap-1.5">
             {currentView === "providers" &&
               activeApp !== "opencode" &&
-              activeApp !== "openclaw" && (
+              activeApp !== "openclaw" &&
+              activeApp !== "hermes" && (
                 <div
                   className="flex shrink-0 items-center gap-1.5"
                   style={{ WebkitAppRegion: "no-drag" } as any}
@@ -1298,7 +1423,11 @@ function App() {
                       <AnimatePresence mode="wait">
                         <motion.div
                           key={
-                            activeApp === "openclaw" ? "openclaw" : "default"
+                            activeApp === "openclaw"
+                              ? "openclaw"
+                              : activeApp === "hermes"
+                                ? "hermes"
+                                : "default"
                           }
                           className="flex items-center gap-1"
                           initial={{ opacity: 0 }}
@@ -1306,13 +1435,52 @@ function App() {
                           exit={{ opacity: 0 }}
                           transition={{ duration: 0.15 }}
                         >
-                          {activeApp === "openclaw" ? (
+                          {activeApp === "hermes" ? (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setCurrentView("skills")}
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
+                                title={t("skills.manage")}
+                              >
+                                <Wrench className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setCurrentView("hermesMemory")}
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
+                                title={t("hermes.memory.title")}
+                              >
+                                <Brain className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => void openHermesWebUI()}
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
+                                title={t("hermes.webui.open")}
+                              >
+                                <LayoutDashboard className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setCurrentView("mcp")}
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
+                                title={t("mcp.title")}
+                              >
+                                <McpIcon size={16} />
+                              </Button>
+                            </>
+                          ) : activeApp === "openclaw" ? (
                             <>
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setCurrentView("workspace")}
-                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
                                 title={t("workspace.manage")}
                               >
                                 <FolderOpen className="w-4 h-4" />
@@ -1321,7 +1489,7 @@ function App() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setCurrentView("openclawEnv")}
-                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
                                 title={t("openclaw.env.title")}
                               >
                                 <KeyRound className="w-4 h-4" />
@@ -1330,7 +1498,7 @@ function App() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setCurrentView("openclawTools")}
-                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
                                 title={t("openclaw.tools.title")}
                               >
                                 <Shield className="w-4 h-4" />
@@ -1339,7 +1507,7 @@ function App() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setCurrentView("openclawAgents")}
-                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
                                 title={t("openclaw.agents.title")}
                               >
                                 <Cpu className="w-4 h-4" />
@@ -1348,7 +1516,7 @@ function App() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setCurrentView("sessions")}
-                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
                                 title={t("sessionManager.title")}
                               >
                                 <History className="w-4 h-4" />
@@ -1375,7 +1543,7 @@ function App() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setCurrentView("prompts")}
-                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
                                 title={t("prompts.manage")}
                               >
                                 <Book className="w-4 h-4" />
@@ -1399,7 +1567,7 @@ function App() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setCurrentView("mcp")}
-                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 w-8 px-2"
                                 title={t("mcp.title")}
                               >
                                 <McpIcon size={16} />
@@ -1428,6 +1596,9 @@ function App() {
       <main className="flex-1 min-h-0 flex flex-col overflow-y-auto animate-fade-in">
         {isOpenClawView && openclawHealthWarnings.length > 0 && (
           <OpenClawHealthBanner warnings={openclawHealthWarnings} />
+        )}
+        {isHermesView && hermesHealthWarnings.length > 0 && (
+          <HermesHealthBanner warnings={hermesHealthWarnings} />
         )}
         {renderContent()}
       </main>
@@ -1487,6 +1658,28 @@ function App() {
         }
         onConfirm={() => void handleConfirmAction()}
         onCancel={() => setConfirmAction(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={launchDashboardOpen}
+        title={t("hermes.webui.launchConfirmTitle")}
+        message={t("hermes.webui.launchConfirmMessage")}
+        confirmText={t("hermes.webui.launchConfirmAction")}
+        variant="info"
+        onConfirm={() => {
+          setLaunchDashboardOpen(false);
+          void (async () => {
+            try {
+              await hermesApi.launchDashboard();
+              toast.success(t("hermes.webui.launching"));
+            } catch (error) {
+              toast.error(t("hermes.webui.launchFailed"), {
+                description: extractErrorMessage(error) || undefined,
+              });
+            }
+          })();
+        }}
+        onCancel={() => setLaunchDashboardOpen(false)}
       />
 
       <DeepLinkImportDialog />
