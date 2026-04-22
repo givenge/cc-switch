@@ -390,7 +390,7 @@ export function ProviderCard({
                   inline={true}
                   isCurrent={isCurrent}
                 />
-              ) : isOfficial ? (
+              ) : isOfficial && appId !== "codex" ? (
                 <SubscriptionQuotaFooter
                   appId={appId}
                   inline={true}

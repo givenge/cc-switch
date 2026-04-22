@@ -97,6 +97,9 @@ const generatePresetTemplates = (
   // GitHub Copilot 模板不需要脚本，使用专用 API
   [TEMPLATE_TYPES.GITHUB_COPILOT]: "",
 
+  // Official Codex 模板不需要脚本，使用专用 Rust 查询
+  [TEMPLATE_TYPES.OFFICIAL_CODEX]: "",
+
   // Coding Plan 模板不需要脚本，使用专用 Rust 查询
   [TEMPLATE_TYPES.TOKEN_PLAN]: "",
 
@@ -110,6 +113,7 @@ const TEMPLATE_NAME_KEYS: Record<string, string> = {
   [TEMPLATE_TYPES.GENERAL]: "usageScript.templateGeneral",
   [TEMPLATE_TYPES.NEW_API]: "usageScript.templateNewAPI",
   [TEMPLATE_TYPES.GITHUB_COPILOT]: "usageScript.templateCopilot",
+  [TEMPLATE_TYPES.OFFICIAL_CODEX]: "usageScript.templateOfficialCodex",
   [TEMPLATE_TYPES.TOKEN_PLAN]: "usageScript.templateTokenPlan",
   [TEMPLATE_TYPES.BALANCE]: "usageScript.templateBalance",
 };
@@ -243,6 +247,21 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
       return savedScript;
     }
 
+    // 新配置：Codex 官方账号 / OAuth 登录型账号默认使用 Official Codex 内置查询
+    if (
+      appId === "codex" &&
+      (provider.category === "official" ||
+        provider.meta?.providerType === PROVIDER_TYPES.CODEX_OAUTH)
+    ) {
+      return {
+        enabled: false,
+        language: "javascript" as const,
+        code: "",
+        timeout: 10,
+        autoQueryInterval: 5,
+      };
+    }
+
     // 新配置：如果 URL 匹配 Coding Plan，自动初始化
     const autoDetected = detectTokenPlanProvider(providerCredentials.baseUrl);
     if (autoDetected) {
@@ -335,6 +354,14 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
       // 优先使用保存的 templateType
       if (existingScript?.templateType) {
         return existingScript.templateType as string;
+      }
+      // Codex 官方账号 / OAuth 登录型账号默认使用 Official Codex 模板
+      if (
+        appId === "codex" &&
+        (provider.category === "official" ||
+          provider.meta?.providerType === PROVIDER_TYPES.CODEX_OAUTH)
+      ) {
+        return TEMPLATE_TYPES.OFFICIAL_CODEX;
       }
       // 向后兼容：根据字段推断模板类型
       // 检测 NEW_API 模板（有 accessToken 或 userId）
@@ -611,21 +638,31 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
           code: preset,
           apiKey: undefined,
         });
-      } else if (presetName === TEMPLATE_TYPES.GITHUB_COPILOT) {
-        // Copilot 模板不需要脚本和凭证，使用专用 API
-        setScript({
-          ...script,
-          code: "",
-          apiKey: undefined,
-          baseUrl: undefined,
-          accessToken: undefined,
-          userId: undefined,
-        });
-      } else if (presetName === TEMPLATE_TYPES.TOKEN_PLAN) {
-        // Coding Plan 模板不需要脚本，使用 Rust 原生查询
-        const autoDetected = detectTokenPlanProvider(
-          providerCredentials.baseUrl,
-        );
+              } else if (presetName === TEMPLATE_TYPES.GITHUB_COPILOT) {
+                // Copilot 模板不需要脚本和凭证，使用专用 API
+                setScript({
+                  ...script,
+                  code: "",
+                  apiKey: undefined,
+                  baseUrl: undefined,
+                  accessToken: undefined,
+                  userId: undefined,
+                });
+              } else if (presetName === TEMPLATE_TYPES.OFFICIAL_CODEX) {
+                // Official Codex 模板不需要脚本，使用 Rust 原生查询
+                setScript({
+                  ...script,
+                  code: "",
+                  apiKey: undefined,
+                  baseUrl: undefined,
+                  accessToken: undefined,
+                  userId: undefined,
+                });
+              } else if (presetName === TEMPLATE_TYPES.TOKEN_PLAN) {
+                // Coding Plan 模板不需要脚本，使用 Rust 原生查询
+                const autoDetected = detectTokenPlanProvider(
+                  providerCredentials.baseUrl,
+                );
         setScript({
           ...script,
           code: "",
@@ -728,9 +765,20 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                 .filter((name) => {
                   const isCopilotProvider =
                     provider.meta?.providerType === "github_copilot";
+                  const isCodexOfficial =
+                    appId === "codex" &&
+                    (provider.category === "official" ||
+                      provider.meta?.providerType === PROVIDER_TYPES.CODEX_OAUTH);
                   // Copilot 供应商只显示 copilot 模板
                   if (isCopilotProvider) {
                     return name === TEMPLATE_TYPES.GITHUB_COPILOT;
+                  }
+                  // Codex 官方账号/登录型账号只显示 Official Codex 和自定义模板
+                  if (isCodexOfficial) {
+                    return (
+                      name === TEMPLATE_TYPES.OFFICIAL_CODEX ||
+                      name === TEMPLATE_TYPES.CUSTOM
+                    );
                   }
                   // 非 Copilot 供应商不显示 copilot 模板
                   return name !== TEMPLATE_TYPES.GITHUB_COPILOT;
@@ -830,6 +878,15 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
               <div className="space-y-2 border-t border-white/10 pt-3">
                 <p className="text-sm text-muted-foreground">
                   {t("usageScript.copilotAutoAuth")}
+                </p>
+              </div>
+            )}
+
+            {/* Official Codex 模式：自动认证提示 */}
+            {selectedTemplate === TEMPLATE_TYPES.OFFICIAL_CODEX && (
+              <div className="space-y-2 border-t border-white/10 pt-3">
+                <p className="text-sm text-muted-foreground">
+                  {t("usageScript.officialCodexHint")}
                 </p>
               </div>
             )}
