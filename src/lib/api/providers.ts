@@ -25,6 +25,11 @@ export interface OpenTerminalOptions {
   cwd?: string;
 }
 
+export interface CodexLiveConfig {
+  auth: Record<string, unknown>;
+  config: string;
+}
+
 export const providersApi = {
   async getAll(appId: AppId): Promise<Record<string, Provider>> {
     return await invoke("get_providers", { app: appId });
@@ -72,6 +77,10 @@ export const providersApi = {
 
   async importDefault(appId: AppId): Promise<boolean> {
     return await invoke("import_default_config", { app: appId });
+  },
+
+  async getCodexLiveConfig(): Promise<CodexLiveConfig> {
+    return await invoke("get_codex_live_config");
   },
 
   async updateTrayMenu(): Promise<boolean> {

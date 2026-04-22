@@ -131,8 +131,6 @@ export interface UsageRangeSelection {
 
 export type AppTypeFilter = "all" | "claude" | "codex" | "gemini";
 
-export type AppTypeFilter = "all" | "claude" | "codex" | "gemini";
-
 export interface StatsFilters {
   timeRange: UsageRangePreset;
   providerId?: string;

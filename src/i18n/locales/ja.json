@@ -997,6 +997,11 @@
     "modelNameHint": "使用するモデルを指定します。config.toml に自動更新されます",
     "modelName": "モデル名",
     "modelNamePlaceholder": "例: gpt-5-codex",
+    "importFromCurrent": "現在のアカウントからインポート",
+    "importSuccess": "現在のアカウントから設定をインポートしました",
+    "importEmpty": "有効な Codex ログインセッションが見つかりません",
+    "importError": "インポートに失敗しました: {{error}}",
+    "importOverwriteWarning": "既存のプロバイダーを編集中です。インポートすると現在の API Key、Endpoint、認証トークンが上書きされます。続行しますか？",
     "contextWindow1M": "1M コンテキストウィンドウ",
     "autoCompactLimit": "自動圧縮しきい値",
     "autoCompactLimitHint": "コンテキストトークン数がこのしきい値に達すると履歴を自動圧縮"

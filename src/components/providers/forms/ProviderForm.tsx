@@ -401,6 +401,72 @@ export function ProviderForm({
   const { configError: codexConfigError, debouncedValidate } =
     useCodexTomlValidation();
 
+  const handleImportCodexLiveConfig = useCallback(async () => {
+    if (isEditMode) {
+      const confirmed = await window.confirm(
+        t("codexConfig.importOverwriteWarning", {
+          defaultValue:
+            "您正在编辑现有的供应商配置。导入将覆盖当前的 API Key、Endpoint 和认证令牌。是否继续？",
+        }),
+      );
+      if (!confirmed) return;
+    }
+
+    try {
+      const liveConfig = await providersApi.getCodexLiveConfig();
+      if (liveConfig.auth && Object.keys(liveConfig.auth).length > 0) {
+        // Keep hook state and editor view in sync.
+        resetCodexConfig(liveConfig.auth, liveConfig.config);
+
+        // Best-effort: infer provider name from id_token email.
+        const idToken = (liveConfig.auth as any)?.tokens?.id_token;
+        if (typeof idToken === "string" && idToken.includes(".")) {
+          try {
+            const base64Url = idToken.split(".")[1];
+            const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+            const jsonPayload = decodeURIComponent(
+              window
+                .atob(base64)
+                .split("")
+                .map(
+                  (c) =>
+                    "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2),
+                )
+                .join(""),
+            );
+            const payload = JSON.parse(jsonPayload);
+            if (payload.email) {
+              form.setValue("name", payload.email);
+            }
+          } catch (e) {
+            console.warn("Failed to decode id_token for email:", e);
+          }
+        }
+
+        setSelectedPresetId("codex-0");
+
+        toast.success(
+          t("codexConfig.importSuccess", {
+            defaultValue: "成功从当前账号导入配置",
+          }),
+        );
+      } else {
+        toast.info(
+          t("codexConfig.importEmpty", {
+            defaultValue: "当前没有活跃的 Codex 登录状态",
+          }),
+        );
+      }
+    } catch (error) {
+      toast.error(
+        t("codexConfig.importError", {
+          defaultValue: `导入失败: ${error}`,
+          error: String(error),
+        }),
+      );
+    }
+  }, [form, isEditMode, resetCodexConfig, t]);
+
   const handleCodexConfigChange = useCallback(
     (value: string) => {
       originalHandleCodexConfigChange(value);
@@ -1791,6 +1857,7 @@ export function ProviderForm({
               modelName={codexModelName}
               onModelNameChange={handleCodexModelNameChange}
               speedTestEndpoints={speedTestEndpoints}
+              onImportLiveConfig={handleImportCodexLiveConfig}
             />
           )}
 

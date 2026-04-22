@@ -458,7 +458,7 @@ export function ProviderCard({
                   : undefined
               }
               onConfigureUsage={
-                isOfficial || isCopilot || isCodexOauth
+                (isOfficial && appId !== "codex") || isCopilot || isCodexOauth
                   ? undefined
                   : () => onConfigureUsage(provider)
               }

@@ -997,6 +997,11 @@
     "modelNameHint": "指定使用的模型，将自动更新到 config.toml 中",
     "modelName": "模型名称",
     "modelNamePlaceholder": "例如: gpt-5-codex",
+    "importFromCurrent": "从当前账号导入",
+    "importSuccess": "成功从当前账号导入配置",
+    "importEmpty": "当前没有活跃的 Codex 登录状态",
+    "importError": "导入失败: {{error}}",
+    "importOverwriteWarning": "您正在编辑现有的供应商配置。导入将覆盖当前的 API Key、Endpoint 和认证令牌。是否继续？",
     "contextWindow1M": "1M 上下文窗口",
     "autoCompactLimit": "压缩阈值",
     "autoCompactLimitHint": "上下文 token 数达到此阈值时自动压缩历史"

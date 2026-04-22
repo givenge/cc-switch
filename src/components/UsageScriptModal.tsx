@@ -387,6 +387,11 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
 
   const [showApiKey, setShowApiKey] = useState(false);
   const [showAccessToken, setShowAccessToken] = useState(false);
+  const isScriptlessTemplate =
+    selectedTemplate === TEMPLATE_TYPES.GITHUB_COPILOT ||
+    selectedTemplate === TEMPLATE_TYPES.OFFICIAL_CODEX ||
+    selectedTemplate === TEMPLATE_TYPES.TOKEN_PLAN ||
+    selectedTemplate === TEMPLATE_TYPES.BALANCE;
 
   const handleEnableToggle = (checked: boolean) => {
     if (checked && !settingsData?.usageConfirmed) {
@@ -411,12 +416,8 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
   };
 
   const handleSave = () => {
-    // Copilot、Coding Plan、Balance 模板不需要脚本验证
-    if (
-      selectedTemplate !== TEMPLATE_TYPES.GITHUB_COPILOT &&
-      selectedTemplate !== TEMPLATE_TYPES.TOKEN_PLAN &&
-      selectedTemplate !== TEMPLATE_TYPES.BALANCE
-    ) {
+    // Copilot、Official Codex、Coding Plan、Balance 模板不需要脚本验证
+    if (!isScriptlessTemplate) {
       if (script.enabled && !script.code.trim()) {
         toast.error(t("usageScript.scriptEmpty"));
         return;
@@ -708,7 +709,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
           variant="outline"
           size="sm"
           onClick={handleFormat}
-          disabled={!script.enabled}
+          disabled={!script.enabled || isScriptlessTemplate}
           title={t("usageScript.format")}
         >
           <Wand2 size={14} className="mr-1" />
@@ -1179,8 +1180,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
           </div>
 
           {/* 提取器代码 - Copilot 模板不需要 */}
-          {selectedTemplate !== TEMPLATE_TYPES.GITHUB_COPILOT &&
-            selectedTemplate !== TEMPLATE_TYPES.TOKEN_PLAN && (
+          {!isScriptlessTemplate && (
               <div className="space-y-4 glass rounded-xl border border-white/10 p-6">
                 <div className="flex items-center justify-between">
                   <Label className="text-base font-medium">
@@ -1204,8 +1204,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
             )}
 
           {/* 帮助信息 - Copilot 模板不需要 */}
-          {selectedTemplate !== TEMPLATE_TYPES.GITHUB_COPILOT &&
-            selectedTemplate !== TEMPLATE_TYPES.TOKEN_PLAN && (
+          {!isScriptlessTemplate && (
               <div className="glass rounded-xl border border-white/10 p-6 text-sm text-foreground/90">
                 <h4 className="font-medium mb-2">
                   {t("usageScript.scriptHelp")}

@@ -13,7 +13,6 @@ use super::utils::{
 };
 
 const PROVIDER_ID: &str = "claude";
-const TITLE_MAX_CHARS: usize = 80;
 
 pub fn scan_sessions() -> Vec<SessionMeta> {
     let root = get_claude_config_dir().join("projects");
