@@ -101,6 +101,9 @@ const generatePresetTemplates = (
 
   // Official OpenAI (Codex) 模板不需要脚本，使用专用 Rust 查询
   [TEMPLATE_TYPES.OFFICIAL_CODEX]: "",
+
+  // 官方余额查询模板不需要脚本，使用专用 Rust 查询
+  [TEMPLATE_TYPES.BALANCE]: "",
 });
 
 // 模板名称国际化键映射
@@ -111,6 +114,7 @@ const TEMPLATE_NAME_KEYS: Record<string, string> = {
   [TEMPLATE_TYPES.GITHUB_COPILOT]: "usageScript.templateCopilot",
   [TEMPLATE_TYPES.TOKEN_PLAN]: "usageScript.templateTokenPlan",
   [TEMPLATE_TYPES.OFFICIAL_CODEX]: "usageScript.templateOfficialCodex",
+  [TEMPLATE_TYPES.BALANCE]: "usageScript.templateBalance",
 };
 
 /** Coding Plan 供应商选项 */
@@ -127,6 +131,25 @@ const TOKEN_PLAN_PROVIDERS = [
     pattern: /api\.minimaxi?\.com|api\.minimax\.io/i,
   },
 ] as const;
+
+/** 官方余额查询供应商检测 */
+const BALANCE_PROVIDERS = [
+  { id: "deepseek", label: "DeepSeek", pattern: /api\.deepseek\.com/i },
+  { id: "stepfun", label: "StepFun", pattern: /api\.stepfun\.(ai|com)/i },
+  {
+    id: "siliconflow",
+    label: "SiliconFlow",
+    pattern: /api\.siliconflow\.(cn|com)/i,
+  },
+  { id: "openrouter", label: "OpenRouter", pattern: /openrouter\.ai/i },
+  { id: "novita", label: "Novita AI", pattern: /api\.novita\.ai/i },
+] as const;
+
+/** 根据 Base URL 自动检测余额查询供应商 */
+function detectBalanceProvider(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false;
+  return BALANCE_PROVIDERS.some((bp) => bp.pattern.test(baseUrl));
+}
 
 /** 根据 Base URL 自动检测 Coding Plan 供应商 */
 function detectTokenPlanProvider(baseUrl: string | undefined): string | null {
@@ -224,7 +247,19 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
         language: "javascript" as const,
         code: "",
         timeout: 10,
+        autoQueryInterval: 5,
         codingPlanProvider: autoDetected,
+      };
+    }
+
+    // 新配置：如果 URL 匹配官方余额查询供应商，自动初始化
+    if (detectBalanceProvider(providerCredentials.baseUrl)) {
+      return {
+        enabled: false,
+        language: "javascript" as const,
+        code: "",
+        timeout: 10,
+        autoQueryInterval: 5,
       };
     }
 
@@ -233,6 +268,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
       language: "javascript" as const,
       code: PRESET_TEMPLATES[TEMPLATE_TYPES.GENERAL],
       timeout: 10,
+      autoQueryInterval: 5,
     };
   });
 
@@ -309,6 +345,10 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
       if (detectTokenPlanProvider(providerCredentials.baseUrl)) {
         return TEMPLATE_TYPES.TOKEN_PLAN;
       }
+      // 新配置：如果 URL 匹配官方余额查询供应商，自动选择 Balance 模板
+      if (detectBalanceProvider(providerCredentials.baseUrl)) {
+        return TEMPLATE_TYPES.BALANCE;
+      }
       // 默认使用 GENERAL（与默认代码模板一致）
       return TEMPLATE_TYPES.GENERAL;
     },
@@ -340,11 +380,12 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
   };
 
   const handleSave = () => {
-    // Copilot 和 Coding Plan 模板不需要脚本验证
+    // Copilot、Coding Plan、Balance 模板不需要脚本验证
     if (
       selectedTemplate !== TEMPLATE_TYPES.GITHUB_COPILOT &&
       selectedTemplate !== TEMPLATE_TYPES.TOKEN_PLAN &&
-      selectedTemplate !== TEMPLATE_TYPES.OFFICIAL_CODEX
+      selectedTemplate !== TEMPLATE_TYPES.OFFICIAL_CODEX &&
+      selectedTemplate !== TEMPLATE_TYPES.BALANCE
     ) {
       if (script.enabled && !script.code.trim()) {
         toast.error(t("usageScript.scriptEmpty"));
@@ -360,13 +401,13 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
     let scriptWithTemplate = {
       ...script,
       templateType: selectedTemplate as UsageScript["templateType"],
-      // 如果选择了内置模板，我们通常不需要 code，但如果用户之前写过可以保留，或者清空
       code:
         selectedTemplate === TEMPLATE_TYPES.CUSTOM
           ? script.code
           : selectedTemplate === TEMPLATE_TYPES.OFFICIAL_CODEX ||
-              selectedTemplate === TEMPLATE_TYPES.GITHUB_COPILOT
-            ? "" // 内置官方模板不需要代码
+              selectedTemplate === TEMPLATE_TYPES.GITHUB_COPILOT ||
+              selectedTemplate === TEMPLATE_TYPES.BALANCE
+            ? ""
             : script.code,
     };
 
@@ -389,6 +430,37 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
   const handleTest = async () => {
     setTesting(true);
     try {
+      // 官方余额查询模板使用专用 API
+      if (selectedTemplate === TEMPLATE_TYPES.BALANCE) {
+        const config = provider.settingsConfig as Record<string, any>;
+        const baseUrl: string = config?.env?.ANTHROPIC_BASE_URL ?? "";
+        const apiKey: string =
+          config?.env?.ANTHROPIC_AUTH_TOKEN ??
+          config?.env?.ANTHROPIC_API_KEY ??
+          "";
+        const { subscriptionApi } = await import("@/lib/api/subscription");
+        const result = await subscriptionApi.getBalance(baseUrl, apiKey);
+        if (result.success && result.data && result.data.length > 0) {
+          const summary = result.data
+            .map((d) => {
+              const name = d.planName ? `[${d.planName}] ` : "";
+              return `${name}${t("usage.remaining")} ${d.remaining?.toFixed(2)} ${d.unit || ""}`;
+            })
+            .join(", ");
+          toast.success(`${t("usageScript.testSuccess")}${summary}`, {
+            duration: 3000,
+            closeButton: true,
+          });
+          queryClient.setQueryData(["usage", provider.id, appId], result);
+        } else {
+          toast.error(
+            `${t("usageScript.testFailed")}: ${result.error || t("endpointTest.noResult")}`,
+            { duration: 5000 },
+          );
+        }
+        return;
+      }
+
       // Coding Plan 模板使用专用 API
       if (selectedTemplate === TEMPLATE_TYPES.TOKEN_PLAN) {
         const config = provider.settingsConfig as Record<string, any>;
@@ -617,6 +689,16 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
           accessToken: undefined,
           userId: undefined,
         });
+      } else if (presetName === TEMPLATE_TYPES.BALANCE) {
+        // 官方余额查询模板不需要脚本，使用 Rust 原生查询
+        setScript({
+          ...script,
+          code: "",
+          apiKey: undefined,
+          baseUrl: undefined,
+          accessToken: undefined,
+          userId: undefined,
+        });
       }
       setSelectedTemplate(presetName);
     }
@@ -818,8 +900,29 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
             {selectedTemplate === TEMPLATE_TYPES.OFFICIAL_CODEX && (
               <div className="space-y-2 border-t border-white/10 pt-3">
                 <p className="text-sm text-muted-foreground">
-                  {t("usageScript.tokenPlanHint")}
+                  {t("usageScript.officialCodexHint")}
                 </p>
+              </div>
+            )}
+
+            {/* 官方余额查询模式：自动提示 */}
+            {selectedTemplate === TEMPLATE_TYPES.BALANCE && (
+              <div className="space-y-3 border-t border-white/10 pt-3">
+                <p className="text-sm text-muted-foreground">
+                  {t("usageScript.balanceHint")}
+                </p>
+                <div className="flex gap-2 flex-wrap">
+                  {BALANCE_PROVIDERS.filter((bp) =>
+                    bp.pattern.test(providerCredentials.baseUrl || ""),
+                  ).map((bp) => (
+                    <span
+                      key={bp.id}
+                      className="inline-flex items-center px-2.5 py-1 rounded-md bg-primary/10 text-primary text-xs font-medium"
+                    >
+                      {bp.label}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1037,7 +1140,10 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                   onChange={(e) =>
                     setScript({
                       ...script,
-                      timeout: validateTimeout(e.target.value),
+                      timeout:
+                        e.target.value === ""
+                          ? ("" as unknown as number)
+                          : Number(e.target.value),
                     })
                   }
                   onBlur={(e) =>
@@ -1061,14 +1167,15 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                   min={0}
                   max={1440}
                   value={
-                    script.autoQueryInterval ?? script.autoIntervalMinutes ?? 0
+                    script.autoQueryInterval ?? script.autoIntervalMinutes ?? 5
                   }
                   onChange={(e) =>
                     setScript({
                       ...script,
-                      autoQueryInterval: validateAndClampInterval(
-                        e.target.value,
-                      ),
+                      autoQueryInterval:
+                        e.target.value === ""
+                          ? ("" as unknown as number)
+                          : Number(e.target.value),
                     })
                   }
                   onBlur={(e) =>

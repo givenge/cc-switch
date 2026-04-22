@@ -68,7 +68,13 @@ pub(crate) async fn execute_and_format_usage_result(
 
         let account_id = provider_account_id.or(live_account_id);
 
-        let quota = subscription::query_codex_quota(&token, account_id.as_deref()).await;
+        let quota = subscription::query_codex_quota(
+            &token,
+            account_id.as_deref(),
+            "codex",
+            "Authentication failed. Please re-login with Codex CLI.",
+        )
+        .await;
 
         if quota.success {
             let data_list = quota

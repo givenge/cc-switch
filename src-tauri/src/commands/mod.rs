@@ -2,6 +2,8 @@
 
 mod auth;
 mod codex;
+mod balance;
+mod codex_oauth;
 mod coding_plan;
 mod config;
 mod copilot;
@@ -33,6 +35,8 @@ mod workspace;
 
 pub use auth::*;
 pub use codex::*;
+pub use balance::*;
+pub use codex_oauth::*;
 pub use coding_plan::*;
 pub use config::*;
 pub use copilot::*;
