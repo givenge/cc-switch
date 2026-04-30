@@ -3,7 +3,7 @@ import { Play, Wand2, Eye, EyeOff, Save } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { Provider, UsageScript, UsageData } from "@/types";
+import { Provider, UsageScript, UsageData, createUsageScript } from "@/types";
 import { usageApi, settingsApi, type AppId } from "@/lib/api";
 import { copilotGetUsage, copilotGetUsageForAccount } from "@/lib/api/copilot";
 import { useSettingsQuery } from "@/lib/query";
@@ -21,6 +21,10 @@ import { FullScreenPanel } from "@/components/common/FullScreenPanel";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { cn } from "@/lib/utils";
 import { TEMPLATE_TYPES, PROVIDER_TYPES } from "@/config/constants";
+import {
+  CODING_PLAN_PROVIDERS,
+  detectCodingPlanProvider,
+} from "@/config/codingPlanProviders";
 
 interface UsageScriptModalProps {
   provider: Provider;
@@ -118,21 +122,6 @@ const TEMPLATE_NAME_KEYS: Record<string, string> = {
   [TEMPLATE_TYPES.BALANCE]: "usageScript.templateBalance",
 };
 
-/** Coding Plan 供应商选项 */
-const TOKEN_PLAN_PROVIDERS = [
-  { id: "kimi", label: "Kimi For Coding", pattern: /api\.kimi\.com\/coding/i },
-  {
-    id: "zhipu",
-    label: "Zhipu GLM (智谱)",
-    pattern: /bigmodel\.cn|api\.z\.ai/i,
-  },
-  {
-    id: "minimax",
-    label: "MiniMax",
-    pattern: /api\.minimaxi?\.com|api\.minimax\.io/i,
-  },
-] as const;
-
 /** 官方余额查询供应商检测 */
 const BALANCE_PROVIDERS = [
   { id: "deepseek", label: "DeepSeek", pattern: /api\.deepseek\.com/i },
@@ -150,15 +139,6 @@ const BALANCE_PROVIDERS = [
 function detectBalanceProvider(baseUrl: string | undefined): boolean {
   if (!baseUrl) return false;
   return BALANCE_PROVIDERS.some((bp) => bp.pattern.test(baseUrl));
-}
-
-/** 根据 Base URL 自动检测 Coding Plan 供应商 */
-function detectTokenPlanProvider(baseUrl: string | undefined): string | null {
-  if (!baseUrl) return null;
-  for (const cp of TOKEN_PLAN_PROVIDERS) {
-    if (cp.pattern.test(baseUrl)) return cp.id;
-  }
-  return null;
 }
 
 const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
@@ -241,7 +221,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
         return {
           ...savedScript,
           codingPlanProvider:
-            detectTokenPlanProvider(providerCredentials.baseUrl) || "kimi",
+            detectCodingPlanProvider(providerCredentials.baseUrl) || "kimi",
         };
       }
       return savedScript;
@@ -263,36 +243,18 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
     }
 
     // 新配置：如果 URL 匹配 Coding Plan，自动初始化
-    const autoDetected = detectTokenPlanProvider(providerCredentials.baseUrl);
+    const autoDetected = detectCodingPlanProvider(providerCredentials.baseUrl);
     if (autoDetected) {
-      return {
-        enabled: false,
-        language: "javascript" as const,
-        code: "",
-        timeout: 10,
-        autoQueryInterval: 5,
-        codingPlanProvider: autoDetected,
-      };
+      return createUsageScript({ codingPlanProvider: autoDetected });
     }
 
-    // 新配置：如果 URL 匹配官方余额查询供应商，自动初始化
     if (detectBalanceProvider(providerCredentials.baseUrl)) {
-      return {
-        enabled: false,
-        language: "javascript" as const,
-        code: "",
-        timeout: 10,
-        autoQueryInterval: 5,
-      };
+      return createUsageScript();
     }
 
-    return {
-      enabled: false,
-      language: "javascript" as const,
+    return createUsageScript({
       code: PRESET_TEMPLATES[TEMPLATE_TYPES.GENERAL],
-      timeout: 10,
-      autoQueryInterval: 5,
-    };
+    });
   });
 
   const [testing, setTesting] = useState(false);
@@ -373,7 +335,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
         return TEMPLATE_TYPES.GENERAL;
       }
       // 新配置：如果 URL 匹配 Coding Plan 供应商，自动选择 Coding Plan 模板
-      if (detectTokenPlanProvider(providerCredentials.baseUrl)) {
+      if (detectCodingPlanProvider(providerCredentials.baseUrl)) {
         return TEMPLATE_TYPES.TOKEN_PLAN;
       }
       // 新配置：如果 URL 匹配官方余额查询供应商，自动选择 Balance 模板
@@ -434,6 +396,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
         | "custom"
         | "general"
         | "newapi"
+        | "official_codex"
         | "github_copilot"
         | "token_plan"
         | "balance"
@@ -639,31 +602,31 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
           code: preset,
           apiKey: undefined,
         });
-              } else if (presetName === TEMPLATE_TYPES.GITHUB_COPILOT) {
-                // Copilot 模板不需要脚本和凭证，使用专用 API
-                setScript({
-                  ...script,
-                  code: "",
-                  apiKey: undefined,
-                  baseUrl: undefined,
-                  accessToken: undefined,
-                  userId: undefined,
-                });
-              } else if (presetName === TEMPLATE_TYPES.OFFICIAL_CODEX) {
-                // Official Codex 模板不需要脚本，使用 Rust 原生查询
-                setScript({
-                  ...script,
-                  code: "",
-                  apiKey: undefined,
-                  baseUrl: undefined,
-                  accessToken: undefined,
-                  userId: undefined,
-                });
-              } else if (presetName === TEMPLATE_TYPES.TOKEN_PLAN) {
-                // Coding Plan 模板不需要脚本，使用 Rust 原生查询
-                const autoDetected = detectTokenPlanProvider(
-                  providerCredentials.baseUrl,
-                );
+      } else if (presetName === TEMPLATE_TYPES.GITHUB_COPILOT) {
+        // Copilot 模板不需要脚本和凭证，使用专用 API
+        setScript({
+          ...script,
+          code: "",
+          apiKey: undefined,
+          baseUrl: undefined,
+          accessToken: undefined,
+          userId: undefined,
+        });
+      } else if (presetName === TEMPLATE_TYPES.OFFICIAL_CODEX) {
+        // Official Codex 模板不需要脚本，使用 Rust 原生查询
+        setScript({
+          ...script,
+          code: "",
+          apiKey: undefined,
+          baseUrl: undefined,
+          accessToken: undefined,
+          userId: undefined,
+        });
+      } else if (presetName === TEMPLATE_TYPES.TOKEN_PLAN) {
+        // Coding Plan 模板不需要脚本，使用 Rust 原生查询
+        const autoDetected = detectCodingPlanProvider(
+          providerCredentials.baseUrl,
+        );
         setScript({
           ...script,
           code: "",
@@ -920,7 +883,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                   {t("usageScript.tokenPlanHint")}
                 </p>
                 <div className="flex gap-2 flex-wrap">
-                  {TOKEN_PLAN_PROVIDERS.map((cp) => (
+                  {CODING_PLAN_PROVIDERS.map((cp) => (
                     <Button
                       key={cp.id}
                       type="button"
