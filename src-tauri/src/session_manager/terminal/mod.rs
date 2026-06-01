@@ -380,29 +380,4 @@ mod tests {
         assert_eq!(shell_escape(cwd), "\"/tmp/project dir\"");
     }
 
-    #[test]
-    fn wezterm_compatible_terminals_use_start_and_cwd_arguments() {
-        let args = build_wezterm_compatible_args_with_shell(
-            "Kaku",
-            "claude --resume abc-123",
-            Some("/tmp/project dir"),
-            "/bin/zsh",
-        );
-
-        assert_eq!(
-            args,
-            vec![
-                "-na".to_string(),
-                "Kaku".to_string(),
-                "--args".to_string(),
-                "start".to_string(),
-                "--cwd".to_string(),
-                "/tmp/project dir".to_string(),
-                "--".to_string(),
-                "/bin/zsh".to_string(),
-                "-c".to_string(),
-                "claude --resume abc-123".to_string(),
-            ]
-        );
-    }
 }

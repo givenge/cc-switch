@@ -51,7 +51,7 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
       setCodexConfigState("");
       setCodexApiKey("");
       setCodexBaseUrl("");
-      setCodexModelName("");
+      setCodexCatalogModels([]);
       setCodexAuthError("");
       return;
     }
